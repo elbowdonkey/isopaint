@@ -1,12 +1,8 @@
 var Draw = Class.extend({
   defaultToolType: "Line",
   tools: {},
-  slopes: {
-    a: 26.565,
-    b: 333.435,
-    c: 206.565,
-    d: 153.435
-  },
+  slopes: {},
+  snapDistance: 5000,
 
   init: function() {
     this.canvas    = document.getElementById('c');
@@ -19,6 +15,20 @@ var Draw = Class.extend({
     this.debug_y1 = document.getElementById('debug_y1');
     this.debug_g  = document.getElementById('debug_general');
 
+    // calculate "slope" ratios (the pixel friendly angles our lines should snap to)
+    for (var x = -2; x < 3; x++) {
+      for (var y = -2; y < 3; y++) {
+        if (x || y) {
+          var radians = Math.atan2(x, y);
+          var angle   = radians * (180/Math.PI);
+          var angleInt = Math.round(angle * 1000);
+          this.slopes[angleInt] = {
+            angle: angle,
+            ratio: [x,y]
+          }
+        }
+      }
+    };
 
     this.setupTempCanvas();
 
@@ -120,10 +130,6 @@ var Tool = Class.extend({
 
 var Line = Tool.extend({
   toolType: "Line",
-  lineRatios: {
-    xx: [2,1],
-    yy: [1,2]
-  },
 
   mousemove: function (mouseEvent) {
     // this.controller.debug_x1.innerHTML = mouseEvent._x;
@@ -141,109 +147,70 @@ var Line = Tool.extend({
       y1: mouseEvent._y
     };
 
-    var slope = this.determineSlope(coords.x0, coords.y0, coords.x1, coords.y1);
-
-     // TODO: fix for lines that don't go from upper left to lower right
-    var lineLength = Math.abs(coords.x1 - coords.x0);
+    var slope      = this.determineSlope(coords.x0, coords.y0, coords.x1, coords.y1);
+    // var lineLength = Math.abs(coords.x1 - coords.x0);
 
     ctx.clearRect(0, 0, width, height);
 
     if (this.snapped) {
       ctx.fillStyle = "#ff0000";
-      for (var i = 0; i < lineLength; i += 2) {
-        var point;
-        var y_a = coords.y0 + (i/2);
-        var y_b = coords.y0 - (i/2);
-        var x_a = coords.x0 + i;
-        var x_b = coords.x0 - i;
-
-        if (slope == this.controller.slopes.a) point = [x_a, y_a];
-        if (slope == this.controller.slopes.b) point = [x_a, y_b];
-        if (slope == this.controller.slopes.c) point = [x_b, y_b];
-        if (slope == this.controller.slopes.d) point = [x_b, y_a];
-
-        ctx.fillRect(point[0], point[1], 2, 1);
-      }
     } else {
       ctx.fillStyle = "#000000";
-      ctx.beginPath();
-      ctx.moveTo(coords.x0, coords.y0);
-      ctx.lineTo(coords.x1, coords.y1);
-      ctx.stroke();
-      ctx.closePath();
     }
+    this.controller.debug_g.innerHTML = slope.angle;
 
-    // switch(slope) {
-    //   case this.controller.slopes.a:
-    //     for (var i = 0; i < lineLength; i += 2) {
-    //       ctx.fillRect(coords.x0 + i, coords.y0 + (i/2), 2, 1);
-    //     }
-    //   break;
+    // Translate coordinates
+    var x0 = coords.x0;
+    var y0 = coords.y0;
+    var x1 = coords.x1;
+    var y1 = coords.y1;
 
-    //   case this.controller.slopes.b:
-    //     for (var i = 0; i < lineLength; i += 2) {
-    //       ctx.fillRect(coords.x0 + i, coords.y0 - (i/2), 2, 1);
-    //     }
-    //   break;
+    // var xd = x0 - x1;
+    // var yd = y0 - y1;
+    // var lineLength = Math.sqrt( xd*xd + yd*yd );
+    // x1 = lineLength * slope.ratio[0];
+    // y1 = lineLength * slope.ratio[1];
 
-    //   case this.controller.slopes.c:
-    //     for (var i = 0; i < lineLength; i += 2) {
-    //       ctx.fillRect(coords.x0 - i, coords.y0 - (i/2), 2, 1);
-    //     }
-    //   break;
+    var deltaX = Math.abs(x1 - x0);
+    var deltaY = Math.abs(y1 - y0);
+    var swapX = (x0 < x1) ? 1 : -1;
+    var swapY = (y0 < y1) ? 1 : -1;
+    var err = deltaX - deltaY;
 
-    //   case this.controller.slopes.d:
-    //     for (var i = 0; i < lineLength; i += 2) {
-    //       ctx.fillRect(coords.x0 - i, coords.y0 + (i/2), 2, 1);
-    //     }
-    //   break;
 
-    //   // case this.controller.slopes.c:
-    //   //   ctx.fillStyle = "#ff0000";
-    //   //   for (var i = lineLength; i <= 0; i-=2) ctx.fillRect(coords.x0 + i, coords.y0 - (i/2), 2, 1);
-    //   //   ctx.strokeStyle = "#000";
-    //   // break;
+    ctx.fillRect(x0, y0, 1, 1);
 
-    //   // case this.controller.slopes.d:
-    //   //   ctx.fillStyle = "#ff0000";
-    //   //   for (var i = lineLength; i <= 0; i-=2) ctx.fillRect(coords.x0 + i, coords.y0 + (i/2), 2, 1);
-    //   //   ctx.strokeStyle = "#000";
-    //   // break;
+    while(true) {
+      ctx.fillRect(x0, y0, 1, 1);
 
-    //   default:
-    //     ctx.beginPath();
-    //     ctx.moveTo(coords.x0, coords.y0);
-    //     ctx.lineTo(coords.x1, coords.y1);
-    //     ctx.stroke();
-    //     ctx.closePath();
-    // }
+      if ((x0 == x1) && (y0 == y1)) break;
+      var e2 = 2 * err;
+      if (e2 > -deltaY){ err -= deltaY; x0  += swapX; }
+      if (e2 <  deltaX){ err += deltaX; y0  += swapY; }
+    }
+    ctx.closePath();
   },
 
   determineSlope: function(x0, y0, x1, y1) {
     var radians = Math.atan2(y0 - y1, x0 - x1);
-    var angle   = (radians * (180/Math.PI)) + 180;
+    var angle   = radians * (180/Math.PI);
     var angleInt = Math.round(angle * 1000);
-
-
-    var snapDistance = 10000;
-    var a = this.controller.slopes.a;
-    var b = 360 - this.controller.slopes.a;
-    var c = 180 + this.controller.slopes.a;
-    var d = 180 - this.controller.slopes.a;
 
     this.controller.debug_g.innerHTML = angle;
 
+    // snap to any predefined slopes
+    for (var slope in this.controller.slopes) {
+      var slopeAngle = this.controller.slopes[slope].angle;
+      if (this.snap(slopeAngle, angleInt) == slopeAngle) return this.controller.slopes[slope];
+    }
 
-    if (this.snap(a, angleInt) == a) return a;
-    if (this.snap(b, angleInt) == b) return b;
-    if (this.snap(c, angleInt) == c) return c;
-    if (this.snap(d, angleInt) == d) return d;
-
-    return angle;
+    // no snapping has happened, so just pass along an unsnapped angle
+    return {angle: angle};
   },
 
   snap: function(targetAngle, currentAngle) {
-    var snapDistance = 10000;
+    var snapDistance = this.controller.snapDistance;
+
 
     if (currentAngle >= ((targetAngle * 1000) - snapDistance) && currentAngle < ((targetAngle * 1000) + snapDistance)) {
       this.snapped = true;

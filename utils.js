@@ -18,3 +18,11 @@ Function.prototype.bind = Function.prototype.bind || function (oThis) {
 
   return fBound;
 };
+
+Number.prototype.toRad = function() {
+  return (this / 180) * Math.PI;
+};
+
+Number.prototype.toDeg = function() {
+  return (this * 180) / Math.PI;
+};
