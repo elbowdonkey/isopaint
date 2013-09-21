@@ -26,3 +26,7 @@ Number.prototype.toRad = function() {
 Number.prototype.toDeg = function() {
   return (this * 180) / Math.PI;
 };
+
+Number.prototype.snap = function(resolution) {
+  return Math.floor(this / resolution) * resolution;
+};
