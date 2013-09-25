@@ -5,5 +5,6 @@ var Debug = Class.extend({
     this.debug_x1 = document.getElementById('debug_x1');
     this.debug_y1 = document.getElementById('debug_y1');
     this.debug_g  = document.getElementById('debug_general');
-  }
+  },
+
 });

@@ -30,3 +30,17 @@ Number.prototype.toDeg = function() {
 Number.prototype.snap = function(resolution) {
   return Math.floor(this / resolution) * resolution;
 };
+
+Number.prototype.sign = function() {
+  if(this > 0) {
+    return 1;
+  } else if (this < 0) {
+    return -1;
+  } else {
+    return 0;
+  }
+}
+
+Number.prototype.abs = function() {
+  return Math.abs(this);
+};

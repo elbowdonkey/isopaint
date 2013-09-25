@@ -7,40 +7,58 @@ var Draw = Class.extend({
   scrollRes: 8,
 
   init: function() {
-    this.canvas    = document.getElementById('c');
-    this.context   = this.canvas.getContext("2d");
-    this.container = this.canvas.parentNode;
+    this.setupCanvas();
+    this.setupTempCanvas();
 
     this.debug = new Debug();
 
-    // calculate "slope" ratios (the pixel friendly angles our lines should snap to)
-    // TODO: not sure about memoization using angle values
-    for (var x = -2; x < 3; x++) {
-      for (var y = -2; y < 3; y++) {
-        if (x || y) {
-          var radians = Math.atan2(x, y);
-          var angle   = (radians * (180/Math.PI))-180;
-          var angleInt = Math.round(angle * 1000);
-          this.slopes[angleInt] = {
-            angle: angle,
-            ratio: [x,y],
-            radians: radians
-          }
-          this.slopeList.push(radians);
-        }
-      }
-    };
-
-    // sort a list of sanctioned slopes by degrees
-    this.slopeList.sort(function(a,b) {
-      return b.toDeg() - a.toDeg();
-    });
-
-    this.setupTempCanvas();
-
+    this.setupSlopes();
     this.setupTools();
+    this.setupHandlers();
+
     this.selectTool(this.defaultToolType);
 
+
+  },
+
+  setupCanvas: function() {
+    this.canvas    = document.getElementById('c');
+    this.context   = this.canvas.getContext("2d");
+    this.image     = this.context.getImageData(0, 0, this.canvas.width, this.canvas.height);
+    this.container = this.canvas.parentNode;
+  },
+
+  setupTempCanvas: function() {
+    this.tempCanvas     = document.getElementById('tmp');
+    this.tempContext   = this.tempCanvas.getContext("2d");
+    this.tempImage     = this.tempContext.getImageData(0, 0, this.canvas.width, this.canvas.height);
+    this.tempContainer = this.tempCanvas.parentNode;
+  },
+
+  setupSlopes: function() {
+    // calculate "slope" ratios (the pixel friendly angles our lines should snap to)
+    // TODO: not sure about memoization using angle values
+    this.slopes = {
+        n: { ratio: [  0, -1], degrees: -180.000,  radians: 0.0000 },
+      nne: { ratio: [  1, -2], degrees: -153.435,  radians: 0.4636 },
+       ne: { ratio: [  1, -1], degrees: -135.000,  radians: 0.7853 },
+      ene: { ratio: [  2, -1], degrees: -116.565,  radians: 1.1071 },
+        e: { ratio: [  1,  0], degrees:  -90.000,  radians: 1.5707 },
+      ese: { ratio: [  2,  1], degrees:  -63.435,  radians: 2.0344 },
+       se: { ratio: [  1,  1], degrees:  -45.000,  radians: 2.3561 },
+      sse: { ratio: [  1,  2], degrees:  -26.565,  radians: 2.6779 },
+        s: { ratio: [  0,  1], degrees:    0.000,  radians: 3.1415 },
+      ssw: { ratio: [ -1,  2], degrees: -206.565,  radians: 0.4636 },
+       sw: { ratio: [ -1,  1], degrees: -225.000,  radians: 0.7853 },
+      wsw: { ratio: [ -2,  1], degrees: -243.435,  radians: 1.1071 },
+        w: { ratio: [ -1,  0], degrees: -270.000,  radians: 1.5707 },
+      wnw: { ratio: [ -2, -1], degrees: -296.565,  radians: 2.0344 },
+       nw: { ratio: [ -1, -1], degrees: -315.000,  radians: 2.3561 },
+      nwn: { ratio: [ -1, -2], degrees: -333.435,  radians: 2.6779 },
+    }
+  },
+
+  setupHandlers: function() {
     this.tempCanvas.addEventListener('mousedown',  this.handleMouse.bind(this), false);
     this.tempCanvas.addEventListener('mousemove',  this.handleMouse.bind(this), false);
     this.tempCanvas.addEventListener('mouseup',    this.handleMouse.bind(this), false);
@@ -48,15 +66,6 @@ var Draw = Class.extend({
     this.tempCanvas.addEventListener('mousewheel', this.handleMouse.bind(this), false);
   },
 
-  setupTempCanvas: function () {
-    this.tempCanvas        = document.createElement('canvas');
-    this.tempCanvas.id     = 'tmp';
-    this.tempCanvas.width  = this.canvas.width;
-    this.tempCanvas.height = this.canvas.height;
-    this.tempContext       = this.tempCanvas.getContext('2d');
-
-    this.container.appendChild(this.tempCanvas);
-  },
 
   setupTools: function() {
     this.tools["Line"]     = new Line(this);
@@ -69,8 +78,13 @@ var Draw = Class.extend({
   },
 
   updateCanvas: function() {
-    this.context.drawImage(this.tempCanvas, 0, 0);
-    this.tempContext.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    var buffer = new ArrayBuffer(this.image.data.length);
+    var buf8 = new Uint8ClampedArray(buffer);
+
+    this.tempContext.putImageData(this.tempImage, 0, 0);
+    this.tempImage.data.set(buf8);
+    this.context.putImageData(this.tempImage, 0, 0);
+    // this.context.drawImage(this.tempCanvas, 0, 0);
   },
 
   undo: function() {},
@@ -99,290 +113,105 @@ var Draw = Class.extend({
     return [mouseEvent._x, mouseEvent._y];
   },
 
+  directLine: function(origin, dir, width) {
+    var slope = this.slopes[dir];
+    var dirX  = slope.ratio[0];
+    var dirY  = slope.ratio[1];
+    var height = width * Math.abs(dirY);
+    var y = 0;
+    var cX = 0;
+    var cY = 0;
+    var oX = origin[0];
+    var oY = origin[1];
+    var ix, iy;
 
-});
+    var count = 0;
+    var x = 0;
+    var y = 0;
+    var xc = 0;
+    var yc = 0;
 
-var Tool = Class.extend({
-  init: function(controller) {
-    this.controller = controller; // our Draw object
-    this.drawing = false;
-    this.snapped = false;
-    this.state = 0;
-    this.wheelState = 0;
-  },
+    while(count < width) {
+      count += 1;
 
-  handleMouse: function(mouseEvent) {
-    this[mouseEvent.type](mouseEvent);
-  },
+      if (dirX.abs() == 2) {
+        if (count % dirX) y += dirY.sign();
+        x += dirX.sign();
+      }
 
-  click: function(mouseEvent) {
-    this.state += 1;
+      if (dirY.abs() == 2) {
+        if (count % dirY) x += dirX.sign();
+        y += dirY.sign();
+      }
 
-    if (this.state == 1) {
-      // first click
-      this.drawing = true;
-      this.x0 = mouseEvent._x;
-      this.y0 = mouseEvent._y;
-    }
+      if (dirX.abs() == 1 && dirY.abs() == 1) {
+        y += dirY.sign();
+        x += dirX.sign();
+      }
 
-    if (this.state == 2) {
-      // second click
-      this.drawing = false;
-      this.controller.updateCanvas();
-      this.state = 0;
-    }
-  },
+      if (dirX.abs() == 0 && dirY.abs() == 1) {
+        y += dirY.sign();
+      }
 
-  mousewheel: function(mouseEvent) {
-    if (this.wheelState >= this.controller.scrollRes * 24) this.wheelState = 0;
-    if (this.wheelState <= 0) this.wheelState = 24;
+      if (dirX.abs() == 1 && dirY.abs() == 0) {
+        x += dirX.sign();
+      }
 
-    if (mouseEvent.wheelDelta > 0) this.wheelState += 1;
-    if (mouseEvent.wheelDelta < 0) this.wheelState -= 1;
-  },
 
-  mousedown: function(mouseEvent) {},
-  mousemove: function(mouseEvent) {},
-  mouseup: function(mouseEvent) {},
-});
+      var index = (((oY + y) * this.canvas.width + (oX + x)) * 4);
+      var color = [0,0,0];
 
-var Line = Tool.extend({
-  toolType: "Line",
+      this.tempImage.data[  index] = color[0];
+      this.tempImage.data[++index] = color[1];
+      this.tempImage.data[++index] = color[2];
+      this.tempImage.data[++index] = 255;
 
-  mousemove: function (mouseEvent) {
-    if (!this.drawing) return;
-
-    var coords = {
-      x0: this.x0,
-      y0: this.y0,
-      x1: mouseEvent._x,
-      y1: mouseEvent._y
     };
+    // this.tempContext.putImageData(this.tempImage, 0, 0);
+  },
 
+  square: function(x1, y1, l, w, axis) {
+    var a,b,c,d;
+    var ll = Math.round(l/2);
+    var ww = Math.round(w/2);
+
+    if (axis == "X") {
+      a = [x1, y1];
+      b = [x1, y1];
+      c = [x1+l, y1+ll];
+      d = [x1, y1-w];
+      this.directLine(a, "n", w);
+      this.directLine(b, "ese", l);
+      this.directLine(c, "n", w);
+      this.directLine(d, "ese", l);
+    }
+
+    if (axis == "Y") {
+      a = [x1, y1];
+      b = [x1, y1];
+      c = [x1+l, y1-ll];
+      d = [x1, y1-w];
+      this.directLine(a, "n", w);
+      this.directLine(b, "ene", l);
+      this.directLine(c, "n", w);
+      this.directLine(d, "ene", l);
+    }
+
+    if (axis == "Z") {
+      c = [x1+l+ll, y1 + parseInt(l * 0.25)];
+      d = [x1, y1];
+
+      this.directLine(c, "wnw", l);
+      this.directLine(d, "ene", ll);
+    }
+
+
+  },
+
+  clear: function() {
     var width         = this.controller.canvas.width;
     var height        = this.controller.canvas.height;
-    var ctx           = this.controller.tempContext;
-    var defaultSlope  = 0;
-    var selectedSlope = Math.round(this.wheelState / this.controller.scrollRes)-1;
-    var deltaX        = Math.abs(coords.x1 - coords.x0);
-    var deltaY        = Math.abs(coords.y1 - coords.y0);
-    var len           = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-
-    selectedSlope     = selectedSlope < 0 ? 0 : selectedSlope;
-
-    var slope         = this.controller.slopeList[selectedSlope];
-
-    ctx.clearRect(0, 0, width, height);
-
-    var snappedX = Math.round(coords.x0 + len * Math.cos(slope));
-    var snappedY = Math.round(coords.y0 + len * Math.sin(slope));
-
-    ctx.fillStyle = "#000000";
-    if (snappedX && snappedY) {
-      this.bresenhamLine(coords.x0, coords.y0, snappedX, snappedY);
-    }
+    this.ctx.clearRect(0, 0, width, height);
   },
-
-  bresenhamLine: function(x0, y0, x1, y1) {
-    // Bresenham Line Algorithm
-    var ctx = this.controller.tempContext;
-    var dx = Math.abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
-    var dy = Math.abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
-    var err = (dx>dy ? dx : -dy)/2;
-    var safety = 100;
-
-    while (true) {
-      safety -= 1;
-      if (safety <= 0) break;
-      ctx.fillRect(x0, y0, 1, 1);
-      if (x0 === x1 && y0 === y1) break;
-      var e2 = err;
-      if (e2 > -dx) { err -= dy; x0 += sx; }
-      if (e2 < dy) { err += dx; y0 += sy; }
-    }
-  },
-
-  ddaLine: function(x1, y1, x2, y2) {
-    // DDA Line Algorithm
-    var ctx    = this.controller.tempContext;
-    var length = Math.abs(x2 - x1);
-
-    if (Math.abs(y2 - y1) > length) {
-      length = Math.abs(y2 - y1);
-    }
-
-    var xincrement = (x2 - x1) / length;
-    var yincrement = (y2 - y1) / length;
-
-    var x = x1 + 0.5;
-    var y = y1 + 0.5;
-
-    for (var i = 0; i < length; i++) {
-      ctx.fillRect(x, y, 1, 1);
-       x = x + xincrement;
-       y = y + yincrement;
-    }
-  },
-
-  eflaLineD: function(x, y, x2, y2) {
-    // Extremely Fast Line Algorithm Var D (Addition Fixed Point)
-    var ctx = this.controller.tempContext;
-    var incrementVal, endVal;
-    var yLonger  = false;
-    var shortLen = y2 - y;
-    var longLen  = x2 - x;
-    var swap;
-
-    if (Math.abs(shortLen) > Math.abs(longLen)) {
-      swap     = shortLen;
-      shortLen = longLen;
-      longLen  = swap;
-      yLonger  = true;
-    }
-
-    endVal = longLen;
-
-    if (longLen < 0) {
-      incrementVal =- 1;
-      longLen =- longLen;
-    } else {
-      incrementVal = 1;
-    }
-
-    var decInc;
-    if (longLen == 0) {
-      decInc = 0;
-    } else {
-      decInc = (shortLen << 16) / longLen;
-    }
-
-    var j = 0;
-    if (yLonger) {
-      for (var i=0; i != endVal; i += incrementVal) {
-        ctx.fillRect(x+(j >> 16),y+i, 1, 1);
-        j += decInc;
-      }
-    } else {
-      for (var i=0; i != endVal; i += incrementVal) {
-        ctx.fillRect(x+i,y+(j >> 16), 1, 1);
-        j += decInc;
-      }
-    }
-  }
 });
 
-var Cube = Tool.extend({
-  toolType: "Cube",
-  lastX: null,
-  lastY: null,
-
-  click: function(mouseEvent) {
-    this.state += 1;
-
-    if (this.state == 1) {
-      // first click
-      this.line = new Line(this.controller);
-      this.drawing = true;
-      this.x0 = mouseEvent._x;
-      this.y0 = mouseEvent._y;
-      this.originalX = this.x0;
-      this.originalY = this.y0;
-      this.controller.updateCanvas();
-    }
-
-    if (this.state == 2) {
-      // second click
-      this.drawing = true;
-      this.x0 = this.lastX;
-      this.y0 = this.lastY;
-      this.controller.updateCanvas();
-    }
-
-    if (this.state == 3) {
-      // third click
-      this.drawing = true;
-      this.x0 = this.lastX;
-      this.y0 = this.lastY;
-      this.controller.updateCanvas();
-    }
-
-    if (this.state == 4) {
-      // fourth click
-      this.line = undefined;
-      this.drawing = false;
-      this.controller.updateCanvas();
-      this.state = 0;
-    }
-  },
-
-  mousemove: function (mouseEvent) {
-    if (!this.drawing) return;
-    if (this.state == 1) this.drawX(mouseEvent);
-    if (this.state == 2) this.drawY(mouseEvent);
-    if (this.state == 3) this.drawZ(mouseEvent);
-    if (this.state == 4) {
-      this.lastX = null;
-      this.lastY = null;
-    }
-  },
-
-  clearCtx: function() {
-    var width         = this.controller.canvas.width;
-    var height        = this.controller.canvas.height;
-    var ctx           = this.controller.tempContext;
-    ctx.clearRect(0, 0, width, height);
-  },
-
-  drawX: function (mouseEvent) {
-    this.draw("X", mouseEvent);
-  },
-
-  drawY: function (mouseEvent) {
-    this.draw("Y", mouseEvent);
-  },
-
-  drawZ: function (mouseEvent) {
-    this.draw("Z", mouseEvent);
-    /*
-      if we know original click pos, the length of Y, and Z length, we can draw
-      three vertical lines of identical length here, outside of the generica draw("z")
-    */
-  },
-
-  draw: function(axis, mouseEvent) {
-    var ctx = this.controller.tempContext;
-    var coords = {
-      x0: this.x0,
-      y0: this.y0,
-      x1: mouseEvent._x,
-      y1: mouseEvent._y
-    };
-    var deltaX        = Math.abs(coords.x1 - coords.x0);
-    var deltaY        = Math.abs(coords.y1 - coords.y0);
-    var len           = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-    var slopeIndex;
-
-    if (axis == "X") slopeIndex = 11;
-    if (axis == "Y") slopeIndex = 14;
-    if (axis == "Z") slopeIndex = 18;
-
-    var slope = this.controller.slopeList[slopeIndex];
-
-    this.clearCtx();
-
-    var snappedX = Math.round(coords.x0 + len * Math.cos(slope));
-    var snappedY = Math.round(coords.y0 + len * Math.sin(slope));
-
-    this.lastX = snappedX;
-    this.lastY = snappedY;
-
-    ctx.fillStyle = "#000000";
-    if (snappedX && snappedY) {
-      this.line.bresenhamLine(coords.x0, coords.y0, snappedX, snappedY);
-    }
-  }
-});
-
-var Cylinder = Tool.extend({
-  toolType: "Cylinder"
-});
