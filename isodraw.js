@@ -113,52 +113,48 @@ var Draw = Class.extend({
     return [mouseEvent._x, mouseEvent._y];
   },
 
-  directLine: function(origin, dir, width) {
-    var slope = this.slopes[dir];
-    var dirX  = slope.ratio[0];
-    var dirY  = slope.ratio[1];
-    var height = width * Math.abs(dirY);
-    var y = 0;
-    var cX = 0;
-    var cY = 0;
-    var oX = origin[0];
-    var oY = origin[1];
-    var ix, iy;
+  plotter: function(count, x, y, dir, width, axis) {
+    var slopeX   = this.slopes[dir].ratio[0];
+    var slopeY   = this.slopes[dir].ratio[1];
+    var slopeXa  = Math.abs(slopeX);
+    var slopeYa  = Math.abs(slopeY);
+    var slopeXs  = slopeX.sign();
+    var slopeYs  = slopeY.sign();
 
-    var count = 0;
-    var x = 0;
-    var y = 0;
-    var xc = 0;
-    var yc = 0;
+    if (slopeXa + slopeYa == 2) {
+      y += slopeYs;
+      x += slopeXs;
+    }
+
+    if (!slopeXa && slopeYa) y += slopeYs;
+    if (slopeXa && !slopeYa) x += slopeXs;
+
+    if (slopeXa == 2) {
+      x += slopeXs;
+      y += count % slopeX ? slopeYs : 0;
+    }
+
+    if (slopeYa == 2) {
+      x += count % slopeY ? slopeXs : 0;
+      y += slopeYs;
+    }
+
+    return [x,y];
+  },
+
+  directLine: function(origin, dir, width, axis) {
+    var count    = 0;
+    var x        = 0;
+    var y        = 0;
+    var coords;
 
     while(count < width) {
       count += 1;
+      coords = this.plotter(count, x, y, dir, width, axis);
+      x = coords[0];
+      y = coords[1];
 
-      if (dirX.abs() == 2) {
-        if (count % dirX) y += dirY.sign();
-        x += dirX.sign();
-      }
-
-      if (dirY.abs() == 2) {
-        if (count % dirY) x += dirX.sign();
-        y += dirY.sign();
-      }
-
-      if (dirX.abs() == 1 && dirY.abs() == 1) {
-        y += dirY.sign();
-        x += dirX.sign();
-      }
-
-      if (dirX.abs() == 0 && dirY.abs() == 1) {
-        y += dirY.sign();
-      }
-
-      if (dirX.abs() == 1 && dirY.abs() == 0) {
-        x += dirX.sign();
-      }
-
-
-      var index = (((oY + y) * this.canvas.width + (oX + x)) * 4);
+      var index = ((origin[1] + y) * this.canvas.width + (origin[0] + x)) * 4;
       var color = [0,0,0];
 
       this.tempImage.data[  index] = color[0];
@@ -166,6 +162,16 @@ var Draw = Class.extend({
       this.tempImage.data[++index] = color[2];
       this.tempImage.data[++index] = 255;
 
+      // if (axis == "X") {
+      //   for (var i = 0; i < height; i++) {
+      //     var filldex = ((origin[1] + y-i) * this.canvas.width + (origin[0] + x)) * 4;
+      //     var fill = [255,0,0];
+      //     this.tempImage.data[  filldex] = fill[0];
+      //     this.tempImage.data[++filldex] = fill[1];
+      //     this.tempImage.data[++filldex] = fill[2];
+      //     this.tempImage.data[++filldex] = 255;
+      //   };
+      // }
     };
     // this.tempContext.putImageData(this.tempImage, 0, 0);
   },
@@ -180,10 +186,11 @@ var Draw = Class.extend({
       b = [x1, y1];
       c = [x1+l, y1+ll];
       d = [x1, y1-w];
-      this.directLine(a, "n", w);
-      this.directLine(b, "ese", l);
-      this.directLine(c, "n", w);
-      this.directLine(d, "ese", l);
+      this.directLine(a, "n", w, axis);
+      this.directLine(b, "ese", l, axis);
+      this.directLine(c, "n", w, axis);
+      this.directLine(d, "ese", l, axis);
+      this.fillSquare(b, "ese", w, l, axis);
     }
 
     if (axis == "Y") {
@@ -191,26 +198,56 @@ var Draw = Class.extend({
       b = [x1, y1];
       c = [x1+l, y1-ll];
       d = [x1, y1-w];
-      this.directLine(a, "n", w);
-      this.directLine(b, "ene", l);
-      this.directLine(c, "n", w);
-      this.directLine(d, "ene", l);
+      this.directLine(a, "n", w, axis);
+      this.directLine(b, "ene", l, axis);
+      this.directLine(c, "n", w, axis);
+      this.directLine(d, "ene", l, axis);
+      this.fillSquare(b, "ene", w, l, axis);
     }
 
     if (axis == "Z") {
       c = [x1+l+ll, y1 + parseInt(l * 0.25)];
       d = [x1, y1];
 
-      this.directLine(c, "wnw", l);
-      this.directLine(d, "ene", ll);
+      this.directLine(c, "wnw", l, axis);
+      this.directLine(d, "ene", ll, axis);
+      // this.fillSquare(d, "ene", ll, l, axis);
     }
+  },
+
+  fillSquare: function(origin, dir, width, length, axis) {
+    var count    = 0;
+    var x        = 0;
+    var y        = 0;
+    var coords;
+    var fill;
+
+    if (axis == "X") fill = [200,200,200];
+    if (axis == "Y") fill = [230,230,230];
+    if (axis == "Z") fill = [0,0,255];
 
 
+    while(count < length-1) {
+      count += 1;
+      coords = this.plotter(count, x, y, dir, length, axis);
+      x = coords[0];
+      y = coords[1];
+
+      // if (axis == "X") {
+        for (var i = 1; i < width; i++) {
+          var filldex = ((origin[1] + y-i) * this.canvas.width + (origin[0] + x)) * 4;
+          this.tempImage.data[  filldex] = fill[0];
+          this.tempImage.data[++filldex] = fill[1];
+          this.tempImage.data[++filldex] = fill[2];
+          this.tempImage.data[++filldex] = 255;
+        };
+      // }
+    }
   },
 
   clear: function() {
-    var width         = this.controller.canvas.width;
-    var height        = this.controller.canvas.height;
+    var width  = this.controller.canvas.width;
+    var height = this.controller.canvas.height;
     this.ctx.clearRect(0, 0, width, height);
   },
 });
